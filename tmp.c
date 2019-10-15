@@ -42,6 +42,7 @@ Mat* mat_init(Mat* mat_ptr, int height, int width) {
     mat_ptr->height = height;
     mat_ptr->width = width;
     /*mat_ptr->mat_type = type;*/
+    return mat_ptr;
 }
 
 void mat_deinit(Mat* mat_ptr) {
@@ -125,7 +126,8 @@ Mat* cholesky_decomposition(Mat* src, Mat* dst) {
                     sum += dst->ptr[i * src->height + k] *
                            dst->ptr[j * src->height + k];
                 }
-                printf("dd %f %f\n", src->ptr[j * src->height + i] - sum, dst->ptr[i * src->height + i]);
+                printf("dd %f %f\n", src->ptr[j * src->height + i] - sum,
+                       dst->ptr[i * src->height + i]);
                 dst->ptr[j * src->height + i] =
                         (src->ptr[j * src->height + i] - sum) /
                         dst->ptr[i * src->height + i];
@@ -133,6 +135,35 @@ Mat* cholesky_decomposition(Mat* src, Mat* dst) {
         }
     }
     return dst;
+}
+
+// X is result
+Mat* linear_equation_upper(Mat* A, Mat* X, Mat* B) {
+    if (!A || !X || !B || !A->ptr || !X->ptr || !B->ptr) {
+        return NULL;
+    }
+    for(int i = A->height - 1; i >= 0; i--){
+        float sum = 0;
+        for(int j = A->height - 1; j > i; j--){
+            sum += A->ptr[i * A->height + j] * X->ptr[j];
+        }
+        X->ptr[i] = (B->ptr[i] - sum) / A->ptr[i * A->height + i];
+    }
+    return X;
+}
+
+Mat* linear_equation_lower(Mat* A, Mat* X, Mat* B){
+    if (!A || !X || !B || !A->ptr || !X->ptr || !B->ptr) {
+        return NULL;
+    }
+    for(int i = 0; i < A->height; i++){
+        float sum = 0;
+        for(int j = 0; j < i; j++){
+            sum += A->ptr[i * A->height + j] * X->ptr[j];
+        }
+        X->ptr[i] = (B->ptr[i] - sum) / A->ptr[i * A->height + i];
+    }
+    return X;
 }
 
 int main() {
@@ -145,6 +176,10 @@ int main() {
     mat_init(&c, 3, 3);
     Mat decom;
     mat_init(&decom, 3, 3);
+    Mat B;
+    mat_init(&B, 3, 1);
+    Mat X;
+    mat_init(&X, 3, 1);
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
             if (i > j) {
@@ -153,12 +188,23 @@ int main() {
                 a.ptr[i * 3 + j] = random() % 100 + 1;
             }
         }
+        B.ptr[i] = random() % 100 + 1;
     }
     mat_pri(&a);
     mat_pri(transpose(&a, &b));
     mat_pri(mat_mul(&a, &b, &c));
     mat_pri(cholesky_decomposition(&c, &decom));
     mat_pri(mat_mul(&decom, transpose(&decom, &c), &b));
+    mat_pri(&c);
+    mat_pri(&B);
+    mat_pri(linear_equation_upper(&c, &X, &B));
+    mat_pri(mat_mul(&c, &X, &B));
+    mat_pri(linear_equation_lower(&decom, &X, &B));
+    mat_pri(&decom);
+    mat_pri(&B);
+    mat_pri(mat_mul(&decom, &X, &B));
+    mat_deinit(&X);
+    mat_deinit(&B);
     mat_deinit(&decom);
     mat_deinit(&c);
     mat_deinit(&b);

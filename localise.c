@@ -1,4 +1,3 @@
-/*******************************************************************/
 #include <getopt.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,6 +13,7 @@
 #define SUCCESS 0
 #define ERROR 1
 #define ERROR_NULLPTR 2
+#define float double
 
 #define BP 0
 #define TR 1
@@ -234,6 +234,7 @@ void get_result(Message* message, int val, int l, int r, float time,
             cnt++;
         }
     }
+    printf("%d\n", cnt);
     Mat A;
     Mat B;
     Mat AT;
@@ -252,8 +253,8 @@ void get_result(Message* message, int val, int l, int r, float time,
     mat_init(&LT, 3, 3);
     mat_init(&Y, 3, 1);
     mat_init(&X, 3, 1);
-    /*Mat LLT;             */
-    /*mat_init(&LLT, 3, 3);*/
+    Mat LLT;
+    mat_init(&LLT, 3, 3);
     int begin_index = -1;
     int row = 0;
     for (int i = l; i < r; i++) {
@@ -264,14 +265,14 @@ void get_result(Message* message, int val, int l, int r, float time,
         if (begin_index == -1 && message[i].bp.target_id == val &&
             message[i].bp.mark_time >= base_time) {
             begin_index = i;
-            printf("range = %f\n", message[i].bp.range);
+            /*printf("range = %f\n", message[i].bp.range);*/
         } else if (message[i].bp.target_id == val &&
                    message[i].bp.mark_time >= base_time) {
-            printf("range = %f\n", message[i].bp.range);
-            printf("%d\n", i);
-            printf("%f %f\n", message[i].bp.x, message[begin_index].bp.x);
-            printf("%f %f\n", message[i].bp.y, message[begin_index].bp.y);
-            printf("%f %f\n", message[i].bp.z, message[begin_index].bp.z);
+            /*printf("range = %f\n", message[i].bp.range);                  */
+            /*printf("%d\n", i);                                            */
+            /*printf("%f %f\n", message[i].bp.x, message[begin_index].bp.x);*/
+            /*printf("%f %f\n", message[i].bp.y, message[begin_index].bp.y);*/
+            /*printf("%f %f\n", message[i].bp.z, message[begin_index].bp.z);*/
             A.ptr[row * 3 + 0] =
                     2 * (message[i].bp.x - message[begin_index].bp.x);
             A.ptr[row * 3 + 1] =
@@ -294,14 +295,14 @@ void get_result(Message* message, int val, int l, int r, float time,
     transpose(&L, &LT);
     linear_equation_lower(&L, &Y, &ATB);
     linear_equation_upper(&LT, &X, &Y);
-    /*mat_pri(&AT);                   */
-    /*mat_pri(&ATA);                  */
-    /*mat_pri(mat_mul(&L, &LT, &LLT));*/
-    /*mat_pri(&L);                    */
-    /*mat_pri(&LT);                   */
-    /*mat_pri(&X);                    */
+    mat_pri(&AT);
+    mat_pri(&ATA);
+    mat_pri(mat_mul(&L, &LT, &LLT));
+    mat_pri(&L);
+    mat_pri(&LT);
+    mat_pri(&X);
     char buf[STRING_LEN_MAX];
-    sprintf(buf, "$TP,%.2f,%d,%.3f,%.3f,%.3f*", time, val, X.ptr[0], X.ptr[1],
+    sprintf(buf, "$TP,%.2lf,%d,%.3lf,%.3lf,%.3lf*", time, val, X.ptr[0], X.ptr[1],
             X.ptr[2]);
     printf("%s", buf);
     printf("%hhu\n", calculate_checksum(buf));
@@ -397,7 +398,7 @@ int check_input(const char* ptr) {
 
 void read_BP_line(const char* ptr, Message* message, int index) {
     Bp tmp_bp;
-    sscanf(ptr, ",%f,%d,%f,%f,%f*", &tmp_bp.time, &tmp_bp.Id, &tmp_bp.x,
+    sscanf(ptr, ",%lf,%d,%lf,%lf,%lf*", &tmp_bp.time, &tmp_bp.Id, &tmp_bp.x,
            &tmp_bp.y, &tmp_bp.z);
     message[index].bp = tmp_bp;
     message[index].bp.flag = BP;
@@ -407,7 +408,7 @@ void read_BP_line(const char* ptr, Message* message, int index) {
 
 void read_TP_line(const char* ptr, Message* message, int index) {
     Tp tmp_tp;
-    sscanf(ptr, ",%f,%d,%d,%f*", &tmp_tp.time, &tmp_tp.Id, &tmp_tp.target_Id,
+    sscanf(ptr, ",%lf,%d,%d,%lf*", &tmp_tp.time, &tmp_tp.Id, &tmp_tp.target_Id,
            &tmp_tp.range);
     /*printf("%d\n", index);*/
     message[index].tp = tmp_tp;
@@ -443,7 +444,6 @@ int read_line(int check, Message* message, int* index, int* read) {
     type[0] = input[1];
     type[1] = input[2];
     if (!check_input(input)) {
-        fprintf(stderr, "Error: Checksum for message '%s' failed.\n", input);
         if (check) {
             fprintf(stderr, "Error: Checksum for message '%s' failed.\n",
                     input);

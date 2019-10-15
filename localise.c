@@ -15,6 +15,11 @@
 #define ERROR 1
 #define ERROR_NULLPTR 2
 
+#define BP 0
+#define TR 1
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 typedef struct Targets {
     int* ptr;
     int size;
@@ -22,14 +27,17 @@ typedef struct Targets {
 } Targets;
 
 typedef struct Bp {
+    int flag;
     float time;
     int Id;
     float x, y, z;
     float range;
     int target_id;
+    float mark_time;
 } Bp;
 
 typedef struct Tp {
+    int flag;
     float time;
     int Id;
     int target_Id;
@@ -214,15 +222,18 @@ unsigned char calculate_checksum(const char* ptr) {
     return sum;
 }
 
-void get_result(Message* message, int val, int b, float base_time, float time){
+void get_result(Message* message, int val, int l, int r, float time,
+                float base_time) {
     int cnt = 0;
-    for (int i = 0; i <= b; i++) {
-        if (message[i].bp.target_id == val && message[i].bp.time >= base_time) {
-            time = time > message[i].bp.time ? time : message[i].bp.time;
+    for (int i = l; i < r; i++) {
+        if (message[i].bp.flag == TR) {
+            continue;
+        }
+        if (message[i].bp.target_id == val &&
+            message[i].bp.mark_time >= base_time) {
             cnt++;
         }
     }
-    /*printf("%d\n", cnt);*/
     Mat A;
     Mat B;
     Mat AT;
@@ -233,21 +244,34 @@ void get_result(Message* message, int val, int b, float base_time, float time){
     Mat Y, X;
     mat_init(&A, cnt - 1, 3);
     mat_init(&B, cnt - 1, 1);
-    mat_init(&AT, cnt - 1, 3);
+    mat_init(&AT, 3, cnt - 1);
+    /*mat_init(&AT, cnt - 1, 3);*/
     mat_init(&ATA, 3, 3);
     mat_init(&ATB, 3, 1);
     mat_init(&L, 3, 3);
     mat_init(&LT, 3, 3);
     mat_init(&Y, 3, 1);
     mat_init(&X, 3, 1);
+    /*Mat LLT;             */
+    /*mat_init(&LLT, 3, 3);*/
     int begin_index = -1;
     int row = 0;
-    for (int i = 0; i <= b; i++) {
+    for (int i = l; i < r; i++) {
         /*printf("%d %d\n", message[i].bp.target_id, val);*/
-        if (begin_index == -1 && message[i].bp.target_id == val) {
+        if (message[i].bp.flag == TR) {
+            continue;
+        }
+        if (begin_index == -1 && message[i].bp.target_id == val &&
+            message[i].bp.mark_time >= base_time) {
             begin_index = i;
-        } else if (message[i].bp.target_id == val) {
-            /*printf("row = %d\n", row);*/
+            printf("range = %f\n", message[i].bp.range);
+        } else if (message[i].bp.target_id == val &&
+                   message[i].bp.mark_time >= base_time) {
+            printf("range = %f\n", message[i].bp.range);
+            printf("%d\n", i);
+            printf("%f %f\n", message[i].bp.x, message[begin_index].bp.x);
+            printf("%f %f\n", message[i].bp.y, message[begin_index].bp.y);
+            printf("%f %f\n", message[i].bp.z, message[begin_index].bp.z);
             A.ptr[row * 3 + 0] =
                     2 * (message[i].bp.x - message[begin_index].bp.x);
             A.ptr[row * 3 + 1] =
@@ -261,8 +285,8 @@ void get_result(Message* message, int val, int b, float base_time, float time){
             row++;
         }
     }
-    /*mat_pri(&A);*/
-    /*mat_pri(&B);*/
+    mat_pri(&A);
+    mat_pri(&B);
     transpose(&A, &AT);
     mat_mul(&AT, &A, &ATA);
     mat_mul(&AT, &B, &ATB);
@@ -270,40 +294,66 @@ void get_result(Message* message, int val, int b, float base_time, float time){
     transpose(&L, &LT);
     linear_equation_lower(&L, &Y, &ATB);
     linear_equation_upper(&LT, &X, &Y);
+    /*mat_pri(&AT);                   */
+    /*mat_pri(&ATA);                  */
+    /*mat_pri(mat_mul(&L, &LT, &LLT));*/
+    /*mat_pri(&L);                    */
+    /*mat_pri(&LT);                   */
+    /*mat_pri(&X);                    */
     char buf[STRING_LEN_MAX];
     sprintf(buf, "$TP,%.2f,%d,%.3f,%.3f,%.3f*", time, val, X.ptr[0], X.ptr[1],
             X.ptr[2]);
     printf("%s", buf);
     printf("%hhu\n", calculate_checksum(buf));
-    /*mat_deinit(&X);  */
-    /*mat_deinit(&Y);  */
-    /*mat_deinit(&LT); */
-    /*mat_deinit(&L);  */
-    /*mat_deinit(&ATB);*/
-    /*mat_deinit(&ATA);*/
-    /*mat_deinit(&AT); */
-    /*mat_deinit(&B);  */
-    /*mat_deinit(&A);  */
+    mat_deinit(&X);
+    mat_deinit(&Y);
+    mat_deinit(&LT);
+    mat_deinit(&L);
+    mat_deinit(&ATB);
+    mat_deinit(&ATA);
+    mat_deinit(&AT);
+    mat_deinit(&B);
+    mat_deinit(&A);
 }
 
-void calculate_result(Message* message, int val, int b, int max_t) {
+void calculate_result(Message* message, int val, int l, int r, float base_time,
+                      float time_pri) {
+    /*printf("%d %d %f\n", l, r, base_time);*/
     float time = 0;
-    float base_time = 0;
-    for (int i = 0; i < max_t; i++) {
-        /*printf("%d %d\n", message[i].tp.target_Id, message[i].tp.Id);*/
-        if (message[i].tp.is_valid && message[i].tp.target_Id == val) {
-            if (base_time + 1 <= message[i].tp.time) {
-                get_result(message, val, b, base_time, time);
-                base_time += 1;
+    int cnt = 0;
+    for (int i = l; i < r; i++) {
+        /*printf("%d %d\n", message[i].bp.flag, message[i].tp.target_Id);*/
+        if (message[i].bp.flag == TR && message[i].tp.target_Id == val) {
+            time = MAX(time, message[i].tp.time);
+            for (int j = r - 1; j >= 0; j--) {
+                if (message[j].bp.flag == BP &&
+                    message[j].bp.Id == message[i].tp.Id) {
+                    message[j].bp.range = message[i].tp.range;
+                    message[j].bp.target_id = val;
+                    time = MAX(time, message[j].bp.time);
+                    message[j].bp.mark_time = time;
+                    break;
+                }
             }
-            time = time > message[i].tp.time ? time : message[i].tp.time;
-            message[message[i].tp.Id].bp.range = message[i].tp.range;
-            message[message[i].tp.Id].bp.target_id = val;
-            message[message[i].tp.Id].bp.time = message[i].tp.time;
+            cnt++;
         }
+        /*if (message[i].tp.is_valid && message[i].tp.target_Id == val) { */
+        /*    if (base_time <= message[i].tp.time && */
+        /*        message[i].tp.time < base_time + 1) { */
+        /*        time = time > message[i].tp.time ? time : message[i].tp.time;
+         */
+        /*        message[message[i].tp.Id].bp.range = message[i].tp.range; */
+        /*        message[message[i].tp.Id].bp.target_id = val; */
+        /*        message[message[i].tp.Id].bp.time = MAX( */
+        /*                message[message[i].tp.Id].bp.time,
+         * message[i].tp.time);*/
+        /*        cnt++; */
+        /*    } */
+        /*} */
     }
-    if(base_time + 1 > time){
-        get_result(message, val, b, base_time, time);
+    /*printf("cnt = %d\n", cnt);*/
+    if (cnt >= 4) {
+        get_result(message, val, 0, r, time_pri, base_time);
     }
     return;
 }
@@ -345,12 +395,14 @@ int check_input(const char* ptr) {
     return checksum == sum;
 }
 
-void read_BP_line(const char* ptr, Message* message) {
+void read_BP_line(const char* ptr, Message* message, int index) {
     Bp tmp_bp;
     sscanf(ptr, ",%f,%d,%f,%f,%f*", &tmp_bp.time, &tmp_bp.Id, &tmp_bp.x,
            &tmp_bp.y, &tmp_bp.z);
-    message[tmp_bp.Id].bp = tmp_bp;
-    message[tmp_bp.Id].bp.target_id = -1;
+    message[index].bp = tmp_bp;
+    message[index].bp.flag = BP;
+    message[index].bp.target_id = -1;
+    message[index].bp.mark_time = -1;
 }
 
 void read_TP_line(const char* ptr, Message* message, int index) {
@@ -359,7 +411,24 @@ void read_TP_line(const char* ptr, Message* message, int index) {
            &tmp_tp.range);
     /*printf("%d\n", index);*/
     message[index].tp = tmp_tp;
+    message[index].tp.flag = TR;
     message[index].tp.is_valid = VALID;
+    /*message[tmp_tp.Id].bp.time = message[tmp_tp.Id].bp.time > tmp_tp.time?
+     * message[tmp_tp.Id].bp.time: tmp_tp.time;*/
+}
+
+float get_time(Targets* targets, Message* message, int l, int r) {
+    for (int i = r - 1; i >= l; i--) {
+        if (message[i].bp.flag == BP) {
+            return message[i].bp.time;
+        }
+        for (int j = 0; j < targets->size; j++) {
+            if (message[i].tp.target_Id == targets->ptr[j]) {
+                return message[i].tp.time;
+            }
+        }
+    }
+    return 0;
 }
 
 int read_line(int check, Message* message, int* index, int* read) {
@@ -373,16 +442,20 @@ int read_line(int check, Message* message, int* index, int* read) {
     /*printf("%s\n", input);*/
     type[0] = input[1];
     type[1] = input[2];
-    if (check && !check_input(input)) {
+    if (!check_input(input)) {
         fprintf(stderr, "Error: Checksum for message '%s' failed.\n", input);
-        return 0;
+        if (check) {
+            fprintf(stderr, "Error: Checksum for message '%s' failed.\n",
+                    input);
+        }
+        return 1;
     }
     if (!strcmp(type, "BP")) {
-        read_BP_line(input + 3, message);
+        read_BP_line(input + 3, message, *index);
     } else if (!strcmp(type, "TR")) {
         read_TP_line(input + 3, message, *index);
-        (*index)++;
     }
+    (*index)++;
     return 0;
 }
 
@@ -435,24 +508,67 @@ int main(int argc, char* argv[]) {
                 return 2;
         }
     }
-    message = malloc(sizeof(Message) * 100);
-    for (int i = b + 1; i < 100; i++) {
-        if (i <= b) {
-            message[i].bp.target_id = -1;
-        } else {
-            message[i].tp.is_valid = INVALID;
+    message = malloc(sizeof(Message) * 256);
+    int index = 0;
+    int read = 0;
+    float base_time = 0;
+    int len = 0;
+    int ret;
+    while ((ret = read_line(enable_checksum, message, &index, &read)) != EOF) {
+        if (!ret) {
+            len++;
         }
     }
-    int index = b + 1;
-    int read = 0;
-    while (read_line(enable_checksum, message, &index, &read) != EOF)
-        ;
-    /*for (int i = 0; i < b; i++) {                                      */
+    int l = 0, r = 0;
+    for (int i = 0; i < len && read; i++) {
+        /*printf("%d\n", message[i].bp.flag);*/
+        if (message[i].bp.flag == TR) {
+            /*printf("TR \n");*/
+            if (message[i].tp.time >= base_time + 1) {
+                for (int j = 0; j < targets.size; j++) {
+                    /*printf("im in \n");*/
+                    calculate_result(message, targets.ptr[j], l, r, base_time,
+                                     get_time(&targets, message, l, r));
+                }
+                l = r;
+                while (base_time + 1 <= message[i].tp.time) {
+                    base_time++;
+                }
+            }
+            r++;
+
+        } else {
+            /*printf("BP \n");*/
+            if (message[i].bp.time >= base_time + 1) {
+                for (int j = 0; j < targets.size; j++) {
+                    /*printf("im in \n");*/
+                    calculate_result(message, targets.ptr[j], l, r, base_time,
+                                     get_time(&targets, message, l, r));
+                }
+                l = r;
+                while (base_time + 1 <= message[i].tp.time) {
+                    base_time++;
+                }
+            }
+            r++;
+        }
+    }
+    if (l != r) {
+        for (int j = 0; j < targets.size; j++) {
+            calculate_result(message, targets.ptr[j], l, r, base_time,
+                             get_time(&targets, message, l, r));
+        }
+    }
+    /*printf("%p\n", &(&((Message*)(1))->bp)->flag);*/
+    /*printf("%p\n", &(&((Message*)(1))->tp)->flag);*/
+    /*if (read && current_time < base_time + 1) {                            */
+    /*        printf("im in \n");                                            */
+    /*        calculate_result(message, targets.ptr[i], b, 100, base_time);  */
+    /*    }                                                                  */
+    /*}                                                                      */
+    /*[>for (int i = 0; i < b; i++) {                                      <]*/
     /*    printf("%f, %f, %f, %f\n", message[i].bp.time, message[i].bp.x,*/
     /*           message[i].bp.y, message[i].bp.z);                      */
     /*}                                                                  */
-    for (int i = 0; i < targets.size && read; i++) {
-        calculate_result(message, targets.ptr[i], b, 100);
-    }
     return 0;
 }
